@@ -2,11 +2,12 @@ import { useRef, useEffect, useState, useCallback } from 'react'
 import { vehicleApi } from '../api/vehicleApi.js'
 
 const HEARTBEAT_MS = 50
+const IDLE_HEARTBEAT_MS = 1000
 
 /**
  * Manages the control heartbeat, connection state, arming, and safety.
  * Uses vehicleApi abstraction — works in both real ESP32 and simulation mode.
- * Sends a complete control frame every 50ms.
+ * Sends every 50ms while armed, once per second while safe.
  * Skips if a request is in-flight (no queue buildup).
  */
 export function useControlState() {
@@ -22,24 +23,39 @@ export function useControlState() {
   const stick2Ref = useRef({ dir: 0, str: 0 })
   const requestInFlight = useRef(false)
   const connStateRef = useRef(connState)
+  const lastSendAt = useRef(-Infinity)
+  const lastTelemetryAt = useRef(-Infinity)
 
-  useEffect(() => { armedRef.current = armed }, [armed])
-  useEffect(() => { connStateRef.current = connState }, [connState])
+  const updateConnection = useCallback((state) => {
+    connStateRef.current = state
+    setConnState(state)
+  }, [])
+
+  const disarmNow = useCallback(() => {
+    const wasArmed = armedRef.current
+    armedRef.current = false
+    setArmed(false)
+    stick1Ref.current = { dir: 0, str: 0 }
+    stick2Ref.current = { dir: 0, str: 0 }
+    lastSendAt.current = -Infinity
+    if (wasArmed) vehicleApi.sendControlSync({
+      s1_dir: 0, s1_str: 0, s2_dir: 0, s2_str: 0, en: 0,
+    })
+  }, [])
 
   // Simulation: listen for simulated connection changes
   useEffect(() => {
     if (!vehicleApi.isSimulation) return
     vehicleApi.sim.onConnectionChange((connected) => {
       if (connected) {
-        setConnState('online')
+        updateConnection('online')
       } else {
-        setConnState('lost')
-        setArmed(false)
-        stick1Ref.current = { dir: 0, str: 0 }
-        stick2Ref.current = { dir: 0, str: 0 }
+        updateConnection('lost')
+        disarmNow()
       }
     })
-  }, [])
+    return () => vehicleApi.sim.onConnectionChange(null)
+  }, [updateConnection, disarmNow])
 
   // Build current frame from refs
   const buildFrame = useCallback(() => ({
@@ -52,44 +68,55 @@ export function useControlState() {
 
   // Main heartbeat — every 50ms
   useEffect(() => {
+    let active = true
     const sendFrame = () => {
-      const frame = buildFrame()
-      setLastFrame(frame)
-
+      if (document.visibilityState === 'hidden') return
       if (requestInFlight.current) return // skip, no queue
+      const now = performance.now()
+      const interval = armedRef.current ? HEARTBEAT_MS : IDLE_HEARTBEAT_MS
+      if (now - lastSendAt.current < interval) return
+      lastSendAt.current = now
+      const frame = buildFrame()
+      setLastFrame(prev => Object.keys(frame).every(key => prev[key] === frame[key]) ? prev : frame)
 
       requestInFlight.current = true
       vehicleApi.sendControl(frame)
         .then((res) => {
           requestInFlight.current = false
-          if (res && typeof res.latency === 'number') setLatency(res.latency)
-          if (connStateRef.current !== 'online') setConnState('online')
+          if (!active) return
+          if (res && typeof res.latency === 'number' && performance.now() - lastTelemetryAt.current >= 250) {
+            lastTelemetryAt.current = performance.now()
+            setLatency(res.latency)
+          }
+          if (connStateRef.current !== 'online') updateConnection('online')
         })
         .catch(() => {
           requestInFlight.current = false
-          if (connStateRef.current === 'online') {
-            setConnState('lost')
-            setArmed(false)
-            stick1Ref.current = { dir: 0, str: 0 }
-            stick2Ref.current = { dir: 0, str: 0 }
-          }
+          if (!active) return
+          disarmNow()
+          updateConnection('lost')
         })
     }
 
     const timer = setInterval(sendFrame, HEARTBEAT_MS)
-    return () => clearInterval(timer)
-  }, [buildFrame])
+    const resume = () => {
+      if (document.visibilityState !== 'hidden') {
+        lastSendAt.current = -Infinity
+        sendFrame()
+      }
+    }
+    document.addEventListener('visibilitychange', resume)
+    sendFrame()
+    return () => {
+      active = false
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', resume)
+    }
+  }, [buildFrame, disarmNow, updateConnection])
 
   // Safety: visibility / unload
   useEffect(() => {
-    const disarmAndSend = () => {
-      setArmed(false)
-      stick1Ref.current = { dir: 0, str: 0 }
-      stick2Ref.current = { dir: 0, str: 0 }
-      vehicleApi.sendControlSync({
-        s1_dir: 0, s1_str: 0, s2_dir: 0, s2_str: 0, en: 0,
-      })
-    }
+    const disarmAndSend = disarmNow
     const handleHide = () => {
       if (document.visibilityState === 'hidden') disarmAndSend()
     }
@@ -103,7 +130,7 @@ export function useControlState() {
       window.removeEventListener('pagehide', handleUnload)
       window.removeEventListener('beforeunload', handleUnload)
     }
-  }, [])
+  }, [disarmNow])
 
   const updateStick = useCallback((stick, dir, str) => {
     if (stick === 1) stick1Ref.current = { dir, str }
@@ -111,26 +138,22 @@ export function useControlState() {
   }, [])
 
   const toggleArm = useCallback(() => {
-    setArmed(prev => !prev)
-  }, [])
-
-  const disarmNow = useCallback(() => {
-    setArmed(false)
-    stick1Ref.current = { dir: 0, str: 0 }
-    stick2Ref.current = { dir: 0, str: 0 }
-  }, [])
+    if (armedRef.current) return disarmNow()
+    if (connStateRef.current !== 'online' || document.visibilityState === 'hidden') return
+    armedRef.current = true
+    setArmed(true)
+    lastSendAt.current = -Infinity
+  }, [disarmNow])
 
   const reconnect = useCallback(() => {
     if (vehicleApi.isSimulation) {
       vehicleApi.sim.setSimConnected(true)
-      setConnState('online')
+      updateConnection('online')
       return
     }
-    setConnState('connecting')
-    vehicleApi.getSettings()
-      .then(() => setConnState('online'))
-      .catch(() => setConnState('lost'))
-  }, [])
+    updateConnection('connecting')
+    lastSendAt.current = -Infinity
+  }, [updateConnection])
 
   // Simulation-only: force connection loss
   const simulateConnectionLoss = useCallback(() => {
@@ -147,8 +170,8 @@ export function useControlState() {
   }, [])
 
   return {
-    armed, setArmed, toggleArm, disarmNow,
-    connState, setConnState, reconnect,
+    armed, toggleArm, disarmNow,
+    connState, reconnect,
     latency, lastFrame,
     isSimulation: vehicleApi.isSimulation,
     environmentLabel: vehicleApi.environmentLabel,

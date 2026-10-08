@@ -78,7 +78,7 @@ export default function SystemPage({ isSimulation }) {
 function SimMaintenanceModal({ onClose }) {
   const mockInfo = [
     { label: 'Firmware', value: '1.0.0 (simuliert)' },
-    { label: 'Web UI', value: '1.1.0 (simuliert)' },
+    { label: 'Web UI', value: '1.1.1 (simuliert)' },
     { label: 'OTA Firmware Update', value: 'Simuliert — kein echtes Update' },
     { label: 'LittleFS Update', value: 'Simuliert — kein echtes Update' },
     { label: 'Settings Backup', value: 'Simuliert — localStorage' },

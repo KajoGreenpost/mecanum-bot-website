@@ -1,14 +1,17 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { vehicleApi } from '../api/vehicleApi.js'
 
 export function useSettings() {
   const [settings, setSettings] = useState(null)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const loadInFlight = useRef(null)
+  const saveInFlight = useRef(null)
 
   const load = useCallback(() => {
+    if (loadInFlight.current) return loadInFlight.current
     setLoading(true)
-    return vehicleApi.getSettings()
+    loadInFlight.current = vehicleApi.getSettings()
       .then(data => {
         setSettings(data)
         setLoading(false)
@@ -18,19 +21,24 @@ export function useSettings() {
         setLoading(false)
         throw err
       })
+      .finally(() => { loadInFlight.current = null })
+    return loadInFlight.current
   }, [])
 
   const save = useCallback((data) => {
+    if (saveInFlight.current) return saveInFlight.current
     setSaving(true)
-    return vehicleApi.saveSettings(data)
-      .then(() => {
-        setSettings(data)
+    saveInFlight.current = vehicleApi.saveSettings(data)
+      .then(saved => {
+        setSettings(saved || data)
         setSaving(false)
       })
       .catch(err => {
         setSaving(false)
         throw err
       })
+      .finally(() => { saveInFlight.current = null })
+    return saveInFlight.current
   }, [])
 
   const resetSimulation = useCallback(() => {

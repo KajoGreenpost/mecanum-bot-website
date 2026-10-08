@@ -34,7 +34,7 @@ export const vehicleApi = {
     return _impl.sendControl(frame)
   },
 
-  /** Synchronous best-effort send for page unload. */
+  /** Best-effort stop for page unload (non-blocking on ESP32). */
   sendControlSync(frame) {
     _impl.sendControlSync(frame)
   },

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { Activity } from 'lucide-react'
 import { useControlState } from './hooks/useControlState.js'
 import { useSettings } from './hooks/useSettings.js'
@@ -17,8 +17,13 @@ export default function App() {
   const ctrl = useControlState()
   const settings = useSettings()
 
-  const showToast = (msg, type = 'ok') => {
+  const showToast = useCallback((msg, type = 'ok') => {
     setToast({ msg, type, id: Date.now() })
+  }, [])
+
+  const changeTab = (nextTab) => {
+    if (nextTab !== 'control') ctrl.disarmNow()
+    setTab(nextTab)
   }
 
   // Only show connection-lost overlay in REAL mode.
@@ -40,7 +45,7 @@ export default function App() {
           onReconnect={ctrl.reconnect}
         />
 
-        <TabNav tab={tab} onChange={setTab} />
+        <TabNav tab={tab} onChange={changeTab} />
 
         <main className="main-area">
           {tab === 'control' && (

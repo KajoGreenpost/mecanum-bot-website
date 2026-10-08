@@ -18,21 +18,30 @@ const FIELD_DESC = {
 
 export default function SettingsPage({ settings, showToast, isSimulation }) {
   const [form, setForm] = useState(null)
+  const [loadError, setLoadError] = useState(false)
+  const { load } = settings
 
   useEffect(() => {
-    settings.load().then(data => {
+    let active = true
+    load().then(data => {
+      if (!active) return
       setForm({ ...data })
     }).catch(() => {
+      if (!active) return
+      setLoadError(true)
       showToast('Einstellungen konnten nicht geladen werden.', 'err')
     })
-  }, [settings])
+    return () => { active = false }
+  }, [load, showToast])
 
   if (!form) {
     return (
       <div className="settings-page">
         <div className="settings-loading">
-          <div className="spinner" />
-          <span>Lade Einstellungen…</span>
+          {loadError ? <button className="btn-secondary" onClick={() => {
+            setLoadError(false)
+            load().then(data => setForm({ ...data })).catch(() => setLoadError(true))
+          }}>ERNEUT LADEN</button> : <><div className="spinner" /><span>Lade Einstellungen…</span></>}
         </div>
       </div>
     )
@@ -180,7 +189,7 @@ export default function SettingsPage({ settings, showToast, isSimulation }) {
 
         {/* Actions */}
         <div className="settings-actions">
-          <button className="btn-secondary" onClick={handleReload}>
+          <button className="btn-secondary" onClick={handleReload} disabled={settings.loading || settings.saving}>
             <Download size={16} />
             NEU LADEN
           </button>
