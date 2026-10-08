@@ -195,17 +195,23 @@
   height: 100%;
   padding: 12px 16px 8px;
   gap: 10px;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
 }
 
 .joystick-stage {
   flex: 1 1 auto;
-  display: flex;
+  display: grid;
   align-items: center;
   justify-content: center;
   gap: 20px;
   min-height: 0;
   padding: 0 8px;
+  grid-template-columns: minmax(0, 1fr) minmax(130px, 180px) minmax(0, 1fr);
 }
+
+.orientation-hint { display: none; }
 
 /* ============================================================
    JOYSTICK
@@ -218,6 +224,9 @@
   flex: 1 1 0;
   max-width: 380px;
   min-height: 0;
+  min-width: 0;
+  width: 100%;
+  justify-self: center;
 }
 
 .joystick-title-row {
@@ -407,23 +416,27 @@
   display: flex;
   justify-content: center;
   padding: 4px 0 6px;
+  min-width: 0;
 }
 
 .arm-control {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 10px;
   width: 100%;
   max-width: 520px;
-  padding: 14px 24px;
+  padding: 16px 8px;
   border-radius: var(--radius-lg);
   border: 2px solid;
   cursor: pointer;
   font-family: var(--font);
   transition: all 0.3s ease;
   overflow: hidden;
+  flex-direction: column;
 }
+
+.arm-control:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .arm-control.disarmed {
   background: linear-gradient(135deg, rgba(20, 30, 40, 0.8), rgba(14, 22, 32, 0.9));
@@ -474,7 +487,7 @@
 .arm-text-block {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   flex: 1;
 }
 
@@ -896,6 +909,7 @@
   align-items: center;
   justify-content: center;
   overflow-y: auto;
+  touch-action: pan-y;
   padding: 20px;
 }
 
@@ -1467,4 +1481,96 @@
   .dev-panels {
     display: none;
   }
+}
+
+/* Phone controller: one compact toolbar, two full sticks, no scrolling. */
+@media (orientation: landscape) and (max-height: 600px) {
+  .app-content {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: 44px minmax(0, 1fr);
+  }
+  .status-bar {
+    grid-column: 2;
+    grid-row: 1;
+    min-height: 0;
+    padding: 4px 10px 4px 4px;
+    gap: 0;
+    backdrop-filter: none;
+  }
+  .status-left,
+  .hud-badge.env-badge,
+  .hud-badge.heartbeat,
+  .hud-badge.latency { display: none; }
+  .status-right { gap: 5px; }
+  .hud-badge { padding: 4px 8px; font-size: 10px; }
+  .hud-maint-btn { width: 32px; height: 32px; }
+  .tab-nav {
+    grid-column: 1;
+    grid-row: 1;
+    min-height: 0;
+    padding: 4px 8px;
+    gap: 2px;
+  }
+  .tab-item { padding: 6px 10px; font-size: 10px; gap: 5px; }
+  .main-area {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    container-type: size;
+  }
+  .control-page { padding: 8px 12px; gap: 0; }
+  .joystick-stage {
+    padding: 0;
+    gap: 12px;
+    grid-template-columns: minmax(0, 1fr) clamp(130px, 18vw, 180px) minmax(0, 1fr);
+  }
+  .joystick-unit { max-width: none; gap: 6px; }
+  .joystick-title { font-size: 11px; }
+  .joystick-container {
+    flex: 0 0 auto;
+    width: min(100%, 320px, calc(100cqh - 76px));
+    max-width: none;
+    max-height: none;
+  }
+  .telemetry-card {
+    min-width: 0;
+    width: min(100%, 240px);
+    padding: 4px 8px;
+    gap: 10px;
+    backdrop-filter: none;
+  }
+  .telem-item { flex-direction: row; justify-content: center; gap: 4px; }
+  .telem-num, .telem-arrow { font-size: 13px; }
+  .telem-label { font-size: 8px; }
+  .telem-unit { font-size: 9px; }
+  .telem-divider, .telem-bar { display: none; }
+  .arm-section { padding: 0; }
+  .arm-control { min-height: 100px; padding: 12px 6px; gap: 8px; }
+  .arm-icon-wrap { width: 38px; height: 38px; }
+  .arm-text-block { align-items: center; }
+  .arm-title { font-size: 13px; }
+  .arm-sub { font-size: 9px; }
+  .arm-status-led { width: 8px; height: 8px; }
+  .dev-panels { display: none; }
+}
+
+/* Portrait is a rotation prompt; settings and system remain usable. */
+@media (orientation: portrait) and (max-width: 600px) {
+  .control-page .joystick-stage, .control-page .dev-panels { display: none; }
+  .orientation-hint {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    text-align: center;
+    color: var(--text-2);
+    padding: 24px;
+  }
+  .orientation-hint svg { color: var(--cyan); }
+  .orientation-hint strong { color: var(--text); font-size: 18px; }
+  .status-left { display: none; }
+  .status-right { flex: 1; justify-content: center; }
+  .tab-nav { justify-content: center; }
 }

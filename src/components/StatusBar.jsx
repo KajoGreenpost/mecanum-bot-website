@@ -42,7 +42,7 @@ export default function StatusBar({ connState, armed, latency, isSimulation, env
         {/* Heartbeat */}
         <div className="hud-badge heartbeat">
           <Zap size={13} />
-          <span>20Hz</span>
+          <span>{armed ? '20Hz' : '1Hz'}</span>
         </div>
 
         {/* Latency */}

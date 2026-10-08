@@ -43,6 +43,14 @@ export function useControlState() {
     })
   }, [])
 
+  // Rotating a phone out of the supported driving orientation stops the vehicle.
+  useEffect(() => {
+    const portrait = window.matchMedia?.('(orientation: portrait) and (max-width: 600px)')
+    const handleRotation = event => { if (event.matches || portrait?.matches) disarmNow() }
+    portrait?.addEventListener('change', handleRotation)
+    return () => portrait?.removeEventListener('change', handleRotation)
+  }, [disarmNow])
+
   // Simulation: listen for simulated connection changes
   useEffect(() => {
     if (!vehicleApi.isSimulation) return
@@ -140,6 +148,7 @@ export function useControlState() {
   const toggleArm = useCallback(() => {
     if (armedRef.current) return disarmNow()
     if (connStateRef.current !== 'online' || document.visibilityState === 'hidden') return
+    if (window.matchMedia?.('(orientation: portrait) and (max-width: 600px)').matches) return
     armedRef.current = true
     setArmed(true)
     lastSendAt.current = -Infinity
