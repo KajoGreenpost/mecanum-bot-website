@@ -50,6 +50,8 @@ export const vehicleApi = {
   },
 
   getDebug(after = 0, signal) { return _impl.getDebug(after, signal) },
+  calibration(data) { return _impl.calibration(data) },
+  stopCalibrationSync() { _impl.stopCalibrationSync() },
   setDebugEnabled(enabled, signal, after = 0) { return _impl.setDebugEnabled(enabled, signal, after) },
 
   /** Returns maintenance URL or null if simulation */

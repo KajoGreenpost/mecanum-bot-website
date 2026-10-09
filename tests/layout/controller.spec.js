@@ -96,6 +96,7 @@ test('diagnostics switch starts and stops simulated output in phone landscape', 
 })
 
 test('auto-start, individual thumb release, all-thumb release and manual stop', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('rc_mecanum_sim_settings', JSON.stringify({ idleTimeoutSeconds: 0 })))
   await page.setViewportSize({ width: 852, height: 393 })
   await page.goto('/')
   await expect(page.locator('.arm-title')).toHaveText('BEREIT')
@@ -129,6 +130,42 @@ test('auto-start, individual thumb release, all-thumb release and manual stop', 
   await expect(page.locator('.arm-title')).toHaveText('STOPP')
   await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
   await expect(page.locator('.arm-title')).toHaveText('BEREIT')
+})
+
+test('default idle delay keeps neutral control enabled for 10 seconds then deactivates', async ({ page }) => {
+  await page.setViewportSize({ width: 852, height: 393 })
+  await page.goto('/')
+  await expect(page.locator('.arm-title')).toHaveText('BEREIT')
+  const left = await page.locator('.joystick-pad').first().boundingBox()
+  const session = await page.context().newCDPSession(page)
+  const point = { id: 0, x: left.x + left.width / 2, y: left.y + left.height * 0.2 }
+  await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] })
+  await expect(page.locator('.arm-title')).toHaveText('STOPP')
+  await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  await expect(page.locator('.arm-title')).toHaveText('STOPP')
+  for (const strength of await page.locator('.telemetry-card .telem-num').all()) {
+    await expect(strength).toHaveText('0')
+  }
+  await expect(page.locator('.arm-title')).toHaveText('BEREIT', { timeout: 11000 })
+})
+
+test('failsafe slider defaults to 10 seconds and persists 0 and 30 seconds', async ({ page }) => {
+  await page.setViewportSize({ width: 852, height: 393 })
+  await page.goto('/')
+  const openSettings = () => page.getByRole('button', { name: 'EINSTELLUNGEN', exact: true }).click()
+  await openSettings()
+  const slider = page.locator('.slider-group').filter({ hasText: 'Abschalten nach Loslassen' }).locator('input')
+  await expect(slider).toHaveValue('10')
+  await expect(slider).toHaveAttribute('min', '0')
+  await expect(slider).toHaveAttribute('max', '30')
+  for (const value of ['30', '0']) {
+    await slider.fill(value)
+    await page.getByRole('button', { name: 'EINSTELLUNGEN SPEICHERN', exact: true }).click()
+    await expect(page.locator('.toast')).toContainText('Einstellungen gespeichert')
+    await page.reload()
+    await openSettings()
+    await expect(slider).toHaveValue(value)
+  }
 })
 
 test('settings keep their own scrollable area', async ({ page }) => {

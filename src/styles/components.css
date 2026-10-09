@@ -1606,6 +1606,49 @@
   .dev-panels { display: none; }
 }
 
+.calibration-panel { height: 100%; min-height: 0; overflow-y: auto; padding: 16px; touch-action: pan-y; }
+.cal-header { display: flex; align-items: center; gap: 12px; position: sticky; top: -16px; background: var(--bg, #080e16); padding: 4px 0; z-index: 3; }
+.cal-header h2 { margin: 0; font-size: 16px; flex: 1; color: var(--cyan); }
+.cal-header h2 small { display: block; color: #58dca7; font-size: 9px; margin-top: 3px; }
+.cal-header h2 small.active { color: #ffc05a; }
+.cal-stop { min-width: 100px; min-height: 44px; border: 1px solid #ff5268; background: #521d29; color: white; border-radius: 8px; font-weight: 800; cursor: pointer; }
+.cal-steps { display: flex; gap: 5px; flex-wrap: wrap; margin: 10px 0; }
+.cal-steps button { padding: 8px; border: 1px solid #294050; background: #101b28; color: var(--text-2); border-radius: 6px; cursor: pointer; }
+.cal-steps button.selected { color: var(--cyan); border-color: var(--cyan); }
+.cal-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 24px; }
+.cal-instructions p, .cal-controls p, .cal-simulation { color: var(--text-2); font-size: 13px; line-height: 1.5; }
+.cal-instructions h3 { margin: 5px 0; }
+.cal-instructions summary { color: var(--cyan); cursor: pointer; padding: 8px 0; }
+.cal-simulation { margin: 2px 0; font-size: 11px; }
+.cal-instructions label { display: inline-flex; align-items: center; gap: 8px; margin: 8px 12px 8px 0; }
+.cal-instructions select { background: #121f2e; color: var(--text); border: 1px solid #35516b; border-radius: 6px; padding: 8px; }
+.cal-controls { min-width: 0; padding: 12px; border: 1px solid #253a4c; border-radius: 12px; }
+.cal-value { display: block; font-size: 32px; font-weight: 800; color: var(--cyan); }
+.cal-value small { display: block; font-size: 12px; font-weight: 500; color: var(--text-2); }
+.cal-power { width: 100%; height: 64px; accent-color: #00d9ff; cursor: pointer; touch-action: none; }
+.cal-power::-webkit-slider-runnable-track { height: 12px; border-radius: 8px; background: linear-gradient(to right, #00c9ef var(--cal-value, 0%), #203345 0); border: 1px solid #36546b; }
+.cal-power::-webkit-slider-thumb { width: 32px; height: 32px; margin-top: -11px; border-radius: 50%; background: #00d9ff; border: 3px solid #d4f9ff; box-shadow: 0 0 12px #00d9ff66; }
+.cal-power::-moz-range-track { height: 12px; border-radius: 8px; background: #203345; border: 1px solid #36546b; }
+.cal-power::-moz-range-progress { height: 12px; border-radius: 8px; background: #00c9ef; }
+.cal-power::-moz-range-thumb { width: 28px; height: 28px; border-radius: 50%; background: #00d9ff; border: 3px solid #d4f9ff; }
+.cal-power:focus-visible { outline: 2px solid #00d9ff; outline-offset: 3px; border-radius: 8px; }
+.cal-controls button { margin: 4px; }
+.cal-test { min-height: 48px; }
+.cal-controls .cal-state { color: #58dca7; font-weight: 800; }
+.cal-controls .cal-state.active { color: #ffc05a; }
+.cal-controls .cal-message { color: var(--cyan); }
+.cal-navigation { display: flex; justify-content: space-between; margin-top: 12px; }
+.cal-results { margin: 0 0 12px; }
+.cal-results > div { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #253a4c; }
+.cal-results dd { margin: 0; text-align: right; }
+.cal-results small { display: block; color: var(--text-2); }
+.cal-touchpad { width: 160px; height: 160px; border-radius: 50%; border: 2px solid #35516b; background: #101b28; position: relative; margin: 0 auto 12px; touch-action: none; }
+.cal-probe-center, .cal-probe-knob { position: absolute; left: calc(50% - 15px); top: calc(50% - 15px); width: 30px; height: 30px; border-radius: 50%; }
+.cal-probe-center { border: 1px dashed #8ba5bd; }
+.cal-probe-knob { background: #127ce9; pointer-events: none; }
+@media (max-width: 600px) { .calibration-panel { padding: 10px; } .cal-body { gap: 10px; } .cal-header { top: -10px; } .cal-header h2 { font-size: 12px; } .cal-header .btn-secondary { padding: 8px; } .cal-stop { min-height: 36px; } .cal-steps button { font-size: 10px; padding: 6px; } .cal-power { height: 48px; } }
+@media (orientation: portrait) and (max-width: 600px) { .cal-body { grid-template-columns: 1fr; } .cal-power, .cal-test { pointer-events: none; opacity: .4; } .cal-instructions::before { content: 'Für Motortests ins Querformat drehen.'; color: #ffc05a; } }
+
 /* Portrait is a rotation prompt; settings and system remain usable. */
 @media (orientation: portrait) and (max-width: 600px) {
   .control-page .joystick-stage, .control-page .dev-panels { display: none; }

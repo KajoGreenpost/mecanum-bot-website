@@ -14,13 +14,11 @@ export function dirFromAngle(dx, dy) {
   return idx + 1
 }
 
-const DEADZONE_RATIO = 0.12
-
 /**
  * Joystick hook using Pointer Events + pointer capture.
  * Returns refs and handlers to attach to the joystick element.
  */
-export function useJoystick(onChange) {
+export function useJoystick(onChange, deadzonePercent = 12) {
   const elRef = useRef(null)
   const pointerIdRef = useRef(null)
   const centerRef = useRef({ cx: 0, cy: 0, radius: 0 })
@@ -30,6 +28,8 @@ export function useJoystick(onChange) {
   const [active, setActive] = useState(false)
 
   const onChangeRef = useRef(onChange)
+  const deadzoneRef = useRef(deadzonePercent)
+  deadzoneRef.current = deadzonePercent
   useEffect(() => { onChangeRef.current = onChange }, [onChange])
 
   useEffect(() => () => {
@@ -74,9 +74,9 @@ export function useJoystick(onChange) {
       dist = radius
     }
 
-    const deadzone = radius * DEADZONE_RATIO
+    const deadzone = radius * Math.max(0, Math.min(30, deadzoneRef.current)) / 100
 
-    if (dist < deadzone) {
+    if (dist <= deadzone) {
       setKnobPos({ x: 0, y: 0 })
       setDir(0)
       setStr(0)
@@ -85,8 +85,8 @@ export function useJoystick(onChange) {
       return
     }
 
-    // Strength: 0..100 mapped from deadzone to edge
-    let strFrac = (dist - deadzone) / (radius - deadzone)
+    // Send raw strength; the firmware rescales the configured deadzone exactly once.
+    let strFrac = dist / radius
     if (strFrac > 1) strFrac = 1
     if (strFrac < 0) strFrac = 0
     const s = Math.max(1, Math.round(strFrac * 100))

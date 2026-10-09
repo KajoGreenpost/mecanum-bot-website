@@ -8,9 +8,125 @@ import { useControlState } from '../src/hooks/useControlState.js'
 import { vehicleApi } from '../src/api/vehicleApi.js'
 import { realEspApi } from '../src/api/realEspApi.js'
 import DiagnosticsPage from '../src/components/DiagnosticsPage.jsx'
+import { useCalibration } from '../src/hooks/useCalibration.js'
+import { useJoystick } from '../src/hooks/useJoystick.js'
+import { simulationApi } from '../src/api/simulationApi.js'
 
 const defaults = { speedMode: 0, startMin: 18, boost: 82, boostTime: 40, deadzone: 8 }
 const flush = () => Promise.resolve()
+
+test('calibration simulation preserves pulse duration across heartbeats and rejects expired/stopped sessions', async () => {
+  const original = Date.now
+  let now = 0
+  Date.now = () => now
+  simulationApi.stopCalibrationSync()
+  try {
+    const session = (await simulationApi.calibration({ action: 'start' })).session
+    const frame = { action: 'drive', session, sequence: 1, pwm: 18, boost: 82, boostMs: 90, mode: 'pulse', wheel: 0, reverse: 0 }
+    assert.equal((await simulationApi.calibration(frame)).done, false)
+    for (const time of [250, 500]) { now = time; assert.equal((await simulationApi.calibration(frame)).done, false) }
+    now = 700
+    assert.equal((await simulationApi.calibration(frame)).done, true)
+    now = 750
+    assert.equal((await simulationApi.calibration(frame)).done, true, 'neutral heartbeats must not retrigger an impulse')
+    now = 1051
+    await assert.rejects(simulationApi.calibration(frame), /abgelaufen/)
+    const newSession = (await simulationApi.calibration({ action: 'start' })).session
+    assert.notEqual(session, newSession)
+    await simulationApi.calibration({ ...frame, session: newSession })
+    simulationApi.stopCalibrationSync()
+    await assert.rejects(simulationApi.calibration({ ...frame, session: newSession }), /abgelaufen/)
+  } finally { simulationApi.stopCalibrationSync(); Date.now = original }
+})
+
+test('calibration streams one request at a time, stops on release/failure/hide and cannot drive after a late start', async () => {
+  const original = { document: globalThis.document, window: globalThis.window, performance: globalThis.performance,
+    setInterval: globalThis.setInterval, clearInterval: globalThis.clearInterval,
+    calibration: vehicleApi.calibration, stop: vehicleApi.stopCalibrationSync }
+  let hook, renderer, tick, pending, reject, stops = 0, now = 0
+  const frames = [], listeners = new Map()
+  globalThis.document = { visibilityState: 'visible',
+    addEventListener(name, fn) { listeners.set(name, fn) }, removeEventListener(name) { listeners.delete(name) } }
+  globalThis.window = { addEventListener() {}, removeEventListener() {} }
+  globalThis.performance = { now: () => now }
+  globalThis.setInterval = fn => { tick = fn; return 1 }; globalThis.clearInterval = () => {}
+  vehicleApi.calibration = data => { frames.push(data); return new Promise((resolve, failure) => { pending = resolve; reject = failure }) }
+  vehicleApi.stopCalibrationSync = () => { stops++ }
+  function Harness() { hook = useCalibration(); return null }
+  const frame = { mode: 'live', pwm: 20, wheel: 2, reverse: 1, boost: 82, boostMs: 120 }
+  try {
+    act(() => { renderer = create(<Harness />) })
+    act(() => { hook.start(frame) })
+    assert.equal(frames.at(-1).action, 'start')
+    act(() => hook.setPower(25))
+    await act(async () => { pending({ active: true, session: 42 }); await flush() })
+    assert.equal(frames.at(-1).action, 'drive')
+    assert.equal(frames.at(-1).session, 42)
+    assert.equal(frames.at(-1).pwm, 25)
+    const count = frames.length
+    act(() => { tick(); tick() })
+    assert.equal(frames.length, count)
+    await act(async () => { pending({ active: true, done: false }); await flush() })
+    act(() => hook.setPower(30))
+    act(() => tick())
+    assert.equal(frames.at(-1).pwm, 30)
+    act(() => hook.stop())
+    assert.equal(hook.running, false)
+    await act(async () => { pending({ active: true, done: false }); await flush() })
+    act(() => tick())
+    assert.equal(frames.length, count + 1)
+    act(() => { hook.start(frame) })
+    act(() => hook.stop())
+    await act(async () => { pending({ active: true, session: 43 }); await flush() })
+    assert.equal(frames.at(-1).action, 'start', 'late start must not send a drive frame')
+    act(() => { hook.start(frame) })
+    await act(async () => { pending({ active: true, session: 44 }); await flush() })
+    await act(async () => { reject(new Error('Timeout')); await flush() })
+    assert.equal(hook.running, false)
+    assert.equal(hook.error, 'Timeout')
+    act(() => { hook.start(frame) })
+    await act(async () => { pending({ active: true, session: 45 }); await flush() })
+    act(() => { document.visibilityState = 'hidden'; listeners.get('visibilitychange')() })
+    assert.equal(hook.running, false)
+    await act(async () => { pending({ active: true }); await flush() })
+    document.visibilityState = 'visible'
+    act(() => { hook.start(frame) })
+    await act(async () => { pending({ active: true, session: 46 }); await flush() })
+    await act(async () => { pending({ active: true, done: false }); await flush() })
+    now = 15000
+    act(() => tick())
+    assert.equal(hook.running, false)
+    assert.match(hook.error, /15 Sekunden/)
+    assert.ok(stops >= 6)
+  } finally {
+    act(() => renderer?.unmount())
+    vehicleApi.calibration = original.calibration; vehicleApi.stopCalibrationSync = original.stop
+    for (const key of ['document', 'window', 'performance', 'setInterval', 'clearInterval']) globalThis[key] = original[key]
+  }
+})
+
+test('joystick applies the selected neutral threshold and sends raw strength for one firmware rescale', () => {
+  const original = globalThis.window
+  globalThis.window = { addEventListener() {}, removeEventListener() {} }
+  let hook, renderer
+  const values = []
+  function Harness({ deadzone }) {
+    hook = useJoystick((...args) => values.push(args), deadzone)
+    hook.elRef.current = { getBoundingClientRect: () => ({ left: 0, top: 0, width: 200, height: 200 }), setPointerCapture() {} }
+    return null
+  }
+  const event = { pointerId: 1, clientX: 110, clientY: 100, preventDefault() {} }
+  try {
+    act(() => { renderer = create(<Harness deadzone={8} />) })
+    act(() => hook.onPointerDown(event))
+    assert.deepEqual(values.at(-1), [3, 10, true])
+    act(() => renderer.update(<Harness deadzone={20} />))
+    act(() => hook.onPointerMove(event))
+    assert.deepEqual(values.at(-1), [0, 0, true])
+    act(() => hook.onPointerUp(event))
+    assert.deepEqual(values.at(-1), [0, 0, false])
+  } finally { act(() => renderer?.unmount()); globalThis.window = original }
+})
 
 test('diagnostics only polls while enabled, preserves cursor, caps output and stops after disabling', async () => {
   const original = { get: vehicleApi.getDebug, set: vehicleApi.setDebugEnabled, document: globalThis.document,
@@ -164,7 +280,7 @@ test('heartbeat uses 1 Hz idle, 20 Hz armed, no request queue, and disarms on lo
     return new Promise((resolve, reject) => { pending = () => resolve({ ok: true, latency: 10 }); failure = reject })
   }
   vehicleApi.sendControlSync = frame => { assert.equal(frame.en, 0); stops++ }
-  function Harness() { control = useControlState(); return null }
+  function Harness({ suspended = false }) { control = useControlState(10, suspended); return null }
   const step = async (time, resolve = true) => {
     now = time
     await act(async () => { tick(); if (resolve) pending(); await flush() })
@@ -174,6 +290,10 @@ test('heartbeat uses 1 Hz idle, 20 Hz armed, no request queue, and disarms on lo
     await act(async () => { pending(); await flush() })
     for (let time = 50; time <= 1000; time += 50) await step(time)
     assert.equal(frames.length, 2)
+    act(() => renderer.update(<Harness suspended />))
+    await step(1050)
+    assert.equal(frames.length, 2, 'regular control packets must pause during calibration')
+    act(() => renderer.update(<Harness />))
     act(() => { control.updateStick(1, 1, 80, true) })
     await step(1050)
     await step(1100)
@@ -212,6 +332,10 @@ test('heartbeat uses 1 Hz idle, 20 Hz armed, no request queue, and disarms on lo
       pending(); await flush()
     })
     assert.equal(frames.at(-1).en, 0)
+    await step(3000, false)
+    act(() => renderer.update(<Harness suspended />))
+    await act(async () => { failure(new Error('Late idle timeout')); await flush() })
+    assert.equal(control.connState, 'online', 'late regular-control failures must not obscure an active calibration')
   } finally {
     act(() => renderer?.unmount())
     vehicleApi.sendControl = originals.send
@@ -220,7 +344,7 @@ test('heartbeat uses 1 Hz idle, 20 Hz armed, no request queue, and disarms on lo
   }
 })
 
-test('automatic activation: last release stops; manual stop needs a fresh gesture', async () => {
+test('automatic activation with 0 second idle timeout; manual stop needs a fresh gesture', async () => {
   const original = { document: globalThis.document, window: globalThis.window,
     setInterval: globalThis.setInterval, clearInterval: globalThis.clearInterval,
     send: vehicleApi.sendControl, stop: vehicleApi.sendControlSync }
@@ -231,7 +355,7 @@ test('automatic activation: last release stops; manual stop needs a fresh gestur
   globalThis.clearInterval = () => {}
   vehicleApi.sendControl = async () => ({ ok: true, latency: 10 })
   vehicleApi.sendControlSync = frame => { assert.equal(frame.en, 0); stops++ }
-  function Harness() { control = useControlState(); return null }
+  function Harness() { control = useControlState(0); return null }
   try {
     await act(async () => { renderer = create(<Harness />); await flush() })
     act(() => control.updateStick(1, 0, 0, true))
@@ -259,6 +383,67 @@ test('automatic activation: last release stops; manual stop needs a fresh gestur
     act(() => renderer?.unmount())
     vehicleApi.sendControl = original.send; vehicleApi.sendControlSync = original.stop
     for (const key of ['document', 'window', 'setInterval', 'clearInterval']) globalThis[key] = original[key]
+  }
+})
+
+test('idle timeout defaults to 10 seconds, stops motion immediately, resets on movement and supports 0–30 seconds', async () => {
+  const original = { document: globalThis.document, window: globalThis.window, performance: globalThis.performance,
+    setInterval: globalThis.setInterval, clearInterval: globalThis.clearInterval,
+    send: vehicleApi.sendControl, stop: vehicleApi.sendControlSync }
+  let now = 0, tick, control, renderer
+  const frames = [], immediate = []
+  globalThis.document = { visibilityState: 'visible', addEventListener() {}, removeEventListener() {} }
+  globalThis.window = { addEventListener() {}, removeEventListener() {} }
+  globalThis.performance = { now: () => now }
+  globalThis.setInterval = fn => { tick = fn; return 1 }
+  globalThis.clearInterval = () => {}
+  vehicleApi.sendControl = async frame => { frames.push(frame); return { ok: true } }
+  vehicleApi.sendControlSync = frame => immediate.push(frame)
+  function Harness({ seconds }) { control = useControlState(seconds); return null }
+  const step = async time => { now = time; await act(async () => { tick(); await flush() }) }
+  const move = () => act(() => control.updateStick(1, 1, 60, true))
+  const release = () => act(() => control.updateStick(1, 0, 0, false))
+  try {
+    await act(async () => { renderer = create(<Harness />); await flush() })
+    move(); release()
+    assert.deepEqual(immediate.at(-1), { s1_dir: 0, s1_str: 0, s2_dir: 0, s2_str: 0, en: 1 })
+    await step(9950)
+    assert.equal(control.armed, true)
+    assert.equal(frames.at(-1).s1_str, 0)
+    assert.equal(frames.at(-1).en, 1)
+    // Repeated neutral updates do not extend the deadline.
+    release()
+    await step(10000)
+    assert.equal(control.armed, false)
+    assert.equal(immediate.at(-1).en, 0)
+    move(); release()
+    await step(15000)
+    move(); release()
+    await step(24950)
+    assert.equal(control.armed, true, 'new movement starts a new idle period')
+    await step(25000)
+    assert.equal(control.armed, false)
+    act(() => renderer.update(<Harness seconds={30} />))
+    move(); release()
+    await step(54950)
+    assert.equal(control.armed, true)
+    await step(55000)
+    assert.equal(control.armed, false)
+    act(() => renderer.update(<Harness seconds={0} />))
+    move(); release()
+    assert.equal(control.armed, false, '0 disables immediately')
+    act(() => renderer.update(<Harness seconds={30} />))
+    move(); release()
+    act(() => control.disarmNow())
+    assert.equal(control.armed, false, 'explicit stop bypasses idle delay')
+    move(); release()
+    act(() => renderer.update(<Harness seconds={0} />))
+    await step(55050)
+    assert.equal(control.armed, false, 'saved timeout changes apply to an existing idle period')
+  } finally {
+    act(() => renderer?.unmount())
+    vehicleApi.sendControl = original.send; vehicleApi.sendControlSync = original.stop
+    for (const key of ['document', 'window', 'performance', 'setInterval', 'clearInterval']) globalThis[key] = original[key]
   }
 })
 

@@ -1,0 +1,111 @@
+import { test, expect } from '@playwright/test'
+
+async function open(page, width = 852, height = 393) {
+  await page.setViewportSize({ width, height })
+  await page.goto('/')
+  await page.evaluate(async () => {
+    const { vehicleApi } = await import('/src/api/vehicleApi.js')
+    window.calibrationFrames = []
+    const original = vehicleApi.calibration.bind(vehicleApi)
+    vehicleApi.calibration = data => { window.calibrationFrames.push(data); return original(data) }
+  })
+  await page.getByRole('button', { name: 'DIAGNOSE', exact: true }).click()
+  await page.getByRole('button', { name: 'KALIBRIERUNG', exact: true }).click()
+  await expect(page.getByRole('slider', { name: 'Motorleistung', exact: true })).toBeVisible()
+  await page.getByRole('region', { name: 'Kalibrierungs-Assistent' }).evaluate(async node => {
+    await Promise.all(node.getAnimations({ subtree: true }).map(animation => animation.finished))
+  })
+  const powerRect = await page.getByRole('slider', { name: 'Motorleistung', exact: true }).boundingBox()
+  expect(powerRect.y + powerRect.height).toBeLessThanOrEqual(height)
+  await page.screenshot({ path: `test-results/calibration-${width}x${height}.png` })
+}
+
+async function drag(page, from, to) {
+  const slider = page.getByRole('slider', { name: 'Motorleistung', exact: true })
+  await slider.scrollIntoViewIfNeeded()
+  const rect = await slider.boundingBox()
+  await page.mouse.move(rect.x + rect.width * from, rect.y + rect.height / 2)
+  await page.mouse.down()
+  await expect(page.locator('.cal-state')).toHaveText('TEST AKTIV')
+  await page.mouse.move(rect.x + rect.width * to, rect.y + rect.height / 2, { steps: 6 })
+  const value = Number(await slider.inputValue())
+  await expect.poll(() => page.evaluate(() => window.calibrationFrames.filter(frame => frame.action === 'drive').at(-1)?.pwm)).toBe(value)
+  await page.mouse.up()
+  await expect(page.locator('.cal-state')).toHaveText('MOTOREN AUS')
+  return value
+}
+
+test('direct regulators, starting pulse and partial settings save preserve unrelated settings', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('rc_mecanum_sim_settings', JSON.stringify({ invertFR: 1, idleTimeoutSeconds: 27, speedMode: 2 })))
+  await open(page)
+  const boost = await drag(page, .1, .75)
+  await expect(page.locator('.cal-message')).toContainText(`${boost} %`)
+  await page.getByRole('button', { name: '2. Weiterlaufen', exact: true }).click()
+  const startMin = await drag(page, .7, .3)
+  const frame = await page.evaluate(() => window.calibrationFrames.filter(frame => frame.action === 'drive').at(-1))
+  expect(frame.boost).toBe(boost)
+  expect(frame.boostMs).toBe(120)
+  await page.getByRole('button', { name: '3. Anfahrdauer', exact: true }).click()
+  await page.getByRole('slider', { name: 'Anfahrdauer', exact: true }).fill('90')
+  await page.getByRole('button', { name: 'ANFAHREN TESTEN', exact: true }).click()
+  await expect(page.locator('.cal-state')).toHaveText('TEST AKTIV')
+  await expect(page.locator('.cal-state')).toHaveText('MOTOREN AUS', { timeout: 2000 })
+  const pulse = await page.evaluate(() => window.calibrationFrames.filter(frame => frame.mode === 'pulse').at(-1))
+  expect(pulse).toMatchObject({ pwm: startMin, boost, boostMs: 90 })
+  await page.getByRole('button', { name: 'DAUER MERKEN', exact: true }).click()
+  await page.getByRole('button', { name: '5. Ergebnis', exact: true }).click()
+  await page.getByRole('button', { name: 'WERTE SPEICHERN', exact: true }).click()
+  await expect(page.locator('.cal-message')).toContainText('Kalibrierungswerte gespeichert')
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('rc_mecanum_sim_settings')))
+  expect(saved).toMatchObject({ boost, startMin, boostTime: 30, deadzone: 8, invertFR: 1, idleTimeoutSeconds: 27, speedMode: 2 })
+  await page.screenshot({ path: 'test-results/calibration-results.png' })
+})
+
+test('deadzone measures relaxed and deliberate touch gestures without motor commands', async ({ page }) => {
+  await open(page)
+  await page.getByRole('button', { name: '4. Totzone', exact: true }).click()
+  const pad = page.getByLabel('Totzone messen', { exact: true })
+  await pad.scrollIntoViewIfNeeded()
+  const session = await page.context().newCDPSession(page)
+  const gesture = async dx => {
+    await pad.evaluate(node => node.scrollIntoView({ block: 'center' }))
+    const rect = await pad.boundingBox()
+    const center = { id: 0, x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
+    await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [center] })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ ...center, x: center.x + dx }] })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  }
+  await gesture(2)
+  await page.getByRole('button', { name: 'ABSICHTLICHE BEWEGUNG MESSEN', exact: true }).click()
+  await gesture(16)
+  const remember = page.getByRole('button', { name: /VORSCHLAG \d+ % MERKEN/ })
+  await expect(remember).toBeEnabled()
+  const recommended = Number((await remember.textContent()).match(/\d+/)[0])
+  await remember.click()
+  expect(await page.evaluate(() => window.calibrationFrames.filter(frame => frame.action === 'drive').length)).toBe(0)
+  await page.getByRole('button', { name: '5. Ergebnis', exact: true }).click()
+  await page.getByRole('button', { name: 'WERTE SPEICHERN', exact: true }).click()
+  await expect(page.locator('.cal-message')).toContainText('Kalibrierungswerte gespeichert')
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('rc_mecanum_sim_settings')).deadzone)).toBe(recommended)
+})
+
+test('stop, wheel selection and tab change cancel calibration; compact landscape keeps stop accessible', async ({ page }) => {
+  await open(page, 568, 320)
+  const stop = page.getByRole('button', { name: 'STOPP', exact: true })
+  const rect = await stop.boundingBox()
+  expect(rect.right || rect.x + rect.width).toBeLessThanOrEqual(568)
+  await drag(page, .1, .5)
+  await page.getByLabel('Räder auswählen', { exact: true }).selectOption('3')
+  await page.getByLabel('Testrichtung', { exact: true }).selectOption('1')
+  await drag(page, .1, .4)
+  expect(await page.evaluate(() => window.calibrationFrames.filter(frame => frame.action === 'drive').at(-1))).toMatchObject({ wheel: 3, reverse: 1 })
+  await page.getByRole('button', { name: '3. Anfahrdauer', exact: true }).click()
+  await page.getByRole('button', { name: 'ANFAHREN TESTEN', exact: true }).click()
+  await expect(page.locator('.cal-state')).toHaveText('TEST AKTIV')
+  await stop.click()
+  await expect(page.locator('.cal-state')).toHaveText('MOTOREN AUS')
+  await page.getByRole('button', { name: 'ANFAHREN TESTEN', exact: true }).click()
+  await page.getByRole('button', { name: 'STEUERUNG', exact: true }).click()
+  await expect(page.locator('.arm-title')).toHaveText('BEREIT')
+  await expect(page.getByRole('button', { name: 'DIAGNOSE', exact: true })).toBeVisible()
+})

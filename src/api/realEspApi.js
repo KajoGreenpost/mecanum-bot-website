@@ -92,6 +92,22 @@ export const realEspApi = {
     return xhrGet('/api/settings', SETTINGS_TIMEOUT).then(text => JSON.parse(text))
   },
 
+  calibration(data) {
+    return xhrPost('/api/calibration', new URLSearchParams(data).toString(), CONTROL_TIMEOUT)
+      .then(text => JSON.parse(text)).catch(error => {
+        if (error.message === 'HTTP 404') throw new Error('Firmware-Update auf 1.0.4 für Kalibrierung erforderlich.')
+        throw error
+      })
+  },
+
+  stopCalibrationSync() {
+    const body = new Blob(['action=stop'], { type: 'application/x-www-form-urlencoded' })
+    try {
+      if (navigator.sendBeacon?.('/api/calibration', body)) return
+      fetch('/api/calibration', { method: 'POST', body, keepalive: true }).catch(() => {})
+    } catch { /* The 300 ms firmware watchdog is the fallback. */ }
+  },
+
   saveSettings(data) {
     const body = Object.keys(data)
       .filter(k => data[k] !== undefined && data[k] !== null)

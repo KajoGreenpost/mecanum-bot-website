@@ -90,6 +90,20 @@ export default function SettingsPage({ settings, showToast, isSimulation }) {
           </div>
         </div>
 
+        <div className="settings-card">
+          <div className="card-header">
+            <Sliders size={18} />
+            <h2>FAILSAFE</h2>
+          </div>
+          <Slider
+            label="Abschalten nach Loslassen"
+            hint="Die Bewegung stoppt sofort. Nach dieser Ruhezeit wird das Fahrzeug deaktiviert. 0 s = sofort. Bei Verbindungsabbruch greift weiterhin der schnelle Sicherheitsstopp."
+            value={form.idleTimeoutSeconds ?? 10}
+            min={0} max={30} unit=" s"
+            onChange={v => updateField('idleTimeoutSeconds', v)}
+          />
+        </div>
+
         {/* Motor tuning */}
         <div className="settings-card">
           <div className="card-header">

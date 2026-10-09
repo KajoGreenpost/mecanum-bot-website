@@ -2,8 +2,10 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Terminal, Trash2 } from 'lucide-react'
 import { vehicleApi } from '../api/vehicleApi.js'
 import Toggle from './Toggle.jsx'
+import CalibrationPanel from './CalibrationPanel.jsx'
 
-export default function DiagnosticsPage({ isSimulation }) {
+export default function DiagnosticsPage({ isSimulation, settings, onCalibrationActive }) {
+  const [calibrationOpen, setCalibrationOpen] = useState(false)
   const [enabled, setEnabled] = useState(false)
   const [ready, setReady] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -42,7 +44,7 @@ export default function DiagnosticsPage({ isSimulation }) {
   }, [accept, reload])
 
   useEffect(() => {
-    if (!enabled || busy) return
+    if (!enabled || busy || calibrationOpen) return
     const controller = new AbortController()
     let timer
     const poll = async () => {
@@ -58,7 +60,7 @@ export default function DiagnosticsPage({ isSimulation }) {
     }
     timer = setTimeout(poll, 1000)
     return () => { controller.abort(); clearTimeout(timer) }
-  }, [enabled, busy, accept])
+  }, [enabled, busy, calibrationOpen, accept])
 
   useEffect(() => {
     if (follow.current && terminal.current) terminal.current.scrollTop = terminal.current.scrollHeight
@@ -79,12 +81,16 @@ export default function DiagnosticsPage({ isSimulation }) {
     }
   }
 
+  if (calibrationOpen) return <CalibrationPanel settings={settings} isSimulation={isSimulation}
+    onActive={onCalibrationActive} onClose={() => setCalibrationOpen(false)} />
+
   return <section className="diagnostics-page">
     <div className="diagnostics-header">
       <div className="diagnostics-heading"><Terminal size={20} /><h2>DIAGNOSE</h2>
         <span className={`debug-status ${enabled ? 'active' : ''}`}>{enabled ? 'DEBUG AN' : 'DEBUG AUS'}</span>
       </div>
       <div className="diagnostics-actions">
+        {settings && <button className="btn-secondary" onClick={() => setCalibrationOpen(true)}>KALIBRIERUNG</button>}
         <label className="debug-toggle-label"><span>Debugging</span>
           <Toggle checked={enabled} onChange={changeDebug} disabled={!ready || busy} label="Debugging aktivieren" />
         </label>

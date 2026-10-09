@@ -6,7 +6,7 @@ const DIR_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8]
 // angle (degrees clockwise from up) for each direction label position
 const DIR_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315]
 
-export default function Joystick({ label, stickId, onChange, onDisarm, armed }) {
+export default function Joystick({ label, stickId, onChange, onDisarm, armed, deadzone = 8 }) {
   const handleChange = useRef(onChange)
   handleChange.current = onChange
 
@@ -17,7 +17,7 @@ export default function Joystick({ label, stickId, onChange, onDisarm, armed }) 
   const {
     elRef, knobPos, dir, str, active,
     onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onLostPointerCapture,
-  } = useJoystick(onJoystickChange)
+  } = useJoystick(onJoystickChange, deadzone)
 
   // Handle pointercancel to trigger disarm
   const handleCancel = (e) => {

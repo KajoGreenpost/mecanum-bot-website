@@ -13,6 +13,7 @@ const DEFAULT_SETTINGS = {
   boost: 82,
   boostTime: 40,
   deadzone: 8,
+  idleTimeoutSeconds: 10,
   invertFL: 0, invertFR: 0, invertRL: 0, invertRR: 0,
   invertMoveY: 0, invertMoveX: 0, invertTurn: 0,
 }
@@ -27,6 +28,8 @@ let _debugLines = []
 let _debugLastState = 0
 let _debugLastRead = 0
 const _debugStart = Date.now()
+let _calibration = null
+let _calibrationSession = 0
 
 function simDebugLog(text) {
   _debugLines.push({ id: ++_debugSeq, ms: Date.now() - _debugStart, text })
@@ -55,6 +58,7 @@ export const simulationApi = {
   mode: 'simulation',
 
   sendControl(frame) {
+    _calibration = null
     _lastFrame = { ...frame }
     if (!_simConnected) {
       return Promise.reject(new Error('Simulated connection lost'))
@@ -65,6 +69,7 @@ export const simulationApi = {
   },
 
   sendControlSync(frame) {
+    _calibration = null
     _lastFrame = { ...frame }
     // no-op in simulation
   },
@@ -74,6 +79,26 @@ export const simulationApi = {
       setTimeout(() => resolve(loadSettingsStore()), 10)
     })
   },
+
+  calibration(data) {
+    if (!_simConnected) return Promise.reject(new Error('Simulation: Verbindung unterbrochen.'))
+    const now = Date.now()
+    if (_calibration && now - _calibration.last > 300) _calibration = null
+    if (data.action === 'stop') { _calibration = null; return Promise.resolve({ active: false, done: true }) }
+    if (data.action === 'start') {
+      if (_calibration) return Promise.reject(new Error('Kalibrierung bereits aktiv.'))
+      _calibration = { session: ++_calibrationSession, last: now, since: null, frame: null }
+    } else if (data.action === 'drive') {
+      if (!_calibration || Number(data.session) !== _calibration.session) return Promise.reject(new Error('Kalibrierung abgelaufen.'))
+      _calibration.last = now
+      if (_calibration.since === null) _calibration.since = now
+      _calibration.frame = { ...data }
+    }
+    const duration = _calibration?.frame?.mode === 'pulse' ? Number(_calibration.frame.boostMs) + 600 : 15000
+    return Promise.resolve({ active: !!_calibration, session: _calibration?.session,
+      done: _calibration?.since !== null && now - _calibration?.since >= duration })
+  },
+  stopCalibrationSync() { _calibration = null },
 
   saveSettings(data) {
     const merged = { ...loadSettingsStore(), ...data }

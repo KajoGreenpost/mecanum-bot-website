@@ -10,7 +10,7 @@ const IDLE_HEARTBEAT_MS = 1000
  * Sends every 50ms while armed, once per second while safe.
  * Skips if a request is in-flight (no queue buildup).
  */
-export function useControlState() {
+export function useControlState(idleTimeoutSeconds = 10, suspended = false) {
   const [armed, setArmed] = useState(false)
   const [connState, setConnState] = useState(
     vehicleApi.isSimulation ? 'online' : 'connecting'
@@ -20,6 +20,11 @@ export function useControlState() {
   const [lastFrame, setLastFrame] = useState({ s1_dir: 0, s1_str: 0, s2_dir: 0, s2_str: 0, en: 0 })
 
   const armedRef = useRef(false)
+  const suspendedRef = useRef(suspended)
+  suspendedRef.current = suspended
+  const idleSince = useRef(null)
+  const idleTimeout = useRef(10)
+  idleTimeout.current = Math.max(0, Math.min(30, Number(idleTimeoutSeconds) || 0)) * 1000
   const stick1Ref = useRef({ dir: 0, str: 0 })
   const stick2Ref = useRef({ dir: 0, str: 0 })
   const requestInFlight = useRef(false)
@@ -42,6 +47,7 @@ export function useControlState() {
   const stopMotion = useCallback(() => {
     const wasArmed = armedRef.current
     armedRef.current = false
+    idleSince.current = null
     setArmed(false)
     stick1Ref.current = { dir: 0, str: 0 }
     stick2Ref.current = { dir: 0, str: 0 }
@@ -92,9 +98,13 @@ export function useControlState() {
   useEffect(() => {
     let active = true
     const sendFrame = () => {
+      if (suspendedRef.current) return
       if (document.visibilityState === 'hidden') return
-      if (requestInFlight.current) return // skip, no queue
       const now = performance.now()
+      if (armedRef.current && idleSince.current !== null && now - idleSince.current >= idleTimeout.current) {
+        stopMotion()
+      }
+      if (requestInFlight.current) return // skip, no queue
       const interval = armedRef.current ? HEARTBEAT_MS : IDLE_HEARTBEAT_MS
       if (now - lastSendAt.current < interval) return
       lastSendAt.current = now
@@ -105,7 +115,7 @@ export function useControlState() {
       vehicleApi.sendControl(frame)
         .then((res) => {
           requestInFlight.current = false
-          if (!active) return
+          if (!active || suspendedRef.current) return
           if (res && typeof res.latency === 'number' && performance.now() - lastTelemetryAt.current >= 250) {
             lastTelemetryAt.current = performance.now()
             setLatency(res.latency)
@@ -114,7 +124,7 @@ export function useControlState() {
         })
         .catch(() => {
           requestInFlight.current = false
-          if (!active) return
+          if (!active || suspendedRef.current) return
           disarmNow()
           updateConnection('lost')
         })
@@ -134,7 +144,7 @@ export function useControlState() {
       clearInterval(timer)
       document.removeEventListener('visibilitychange', resume)
     }
-  }, [buildFrame, disarmNow, updateConnection])
+  }, [buildFrame, disarmNow, stopMotion, updateConnection])
 
   // Safety: visibility / unload
   useEffect(() => {
@@ -160,7 +170,7 @@ export function useControlState() {
       if (!held.current[1] && !held.current[2]) setBlocked(false)
       return
     }
-    const canDrive = connStateRef.current === 'online' && document.visibilityState !== 'hidden'
+    const canDrive = !suspendedRef.current && connStateRef.current === 'online' && document.visibilityState !== 'hidden'
       && !window.matchMedia?.('(orientation: portrait) and (max-width: 600px)').matches
     if (!canDrive) {
       if (pressed) setBlocked(true)
@@ -170,7 +180,18 @@ export function useControlState() {
     else stick2Ref.current = { dir, str }
     const moving = (stick1Ref.current.dir > 0 && stick1Ref.current.str > 0)
       || (stick2Ref.current.dir > 0 && stick2Ref.current.str > 0)
-    if (!moving) return stopMotion()
+    if (!moving) {
+      if (!armedRef.current) return
+      if (idleTimeout.current === 0) return stopMotion()
+      if (idleSince.current === null) {
+        idleSince.current = performance.now()
+        lastSendAt.current = -Infinity
+        // Stop the wheels immediately; only the automatic disarm is delayed.
+        vehicleApi.sendControlSync({ s1_dir: 0, s1_str: 0, s2_dir: 0, s2_str: 0, en: 1 })
+      }
+      return
+    }
+    idleSince.current = null
     if (!armedRef.current) {
       armedRef.current = true
       setArmed(true)

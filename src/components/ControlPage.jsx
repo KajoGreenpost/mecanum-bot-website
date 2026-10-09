@@ -3,7 +3,7 @@ import Joystick from './Joystick.jsx'
 import DevTelemetry from './DevTelemetry.jsx'
 import SimTools from './SimTools.jsx'
 
-export default function ControlPage({ ctrl }) {
+export default function ControlPage({ ctrl, deadzone = 8 }) {
   const handleStickChange = (stickId, dir, str, pressed) => {
     ctrl.updateStick(stickId, dir, str, pressed)
   }
@@ -23,6 +23,7 @@ export default function ControlPage({ ctrl }) {
           onChange={handleStickChange}
           onDisarm={handleDisarm}
           armed={ctrl.armed}
+          deadzone={deadzone}
         />
         {/* A dedicated center column keeps the safety control clear of both sticks. */}
         <div className="arm-section">
@@ -48,6 +49,7 @@ export default function ControlPage({ ctrl }) {
           onChange={handleStickChange}
           onDisarm={handleDisarm}
           armed={ctrl.armed}
+          deadzone={deadzone}
         />
       </div>
 

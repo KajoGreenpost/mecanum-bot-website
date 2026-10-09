@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Activity } from 'lucide-react'
 import { useControlState } from './hooks/useControlState.js'
 import { useSettings } from './hooks/useSettings.js'
@@ -14,9 +14,12 @@ import DiagnosticsPage from './components/DiagnosticsPage.jsx'
 export default function App() {
   const [tab, setTab] = useState('control')
   const [toast, setToast] = useState(null)
+  const [calibrating, setCalibrating] = useState(false)
 
-  const ctrl = useControlState()
   const settings = useSettings()
+  const ctrl = useControlState(settings.settings?.idleTimeoutSeconds ?? 10, calibrating)
+  const { load } = settings
+  useEffect(() => { load().catch(() => {}) }, [load])
 
   const showToast = useCallback((msg, type = 'ok') => {
     setToast({ msg, type, id: Date.now() })
@@ -50,7 +53,7 @@ export default function App() {
 
         <main className="main-area">
           {tab === 'control' && (
-            <ControlPage ctrl={ctrl} />
+            <ControlPage ctrl={ctrl} deadzone={settings.settings?.deadzone ?? 8} />
           )}
           {tab === 'settings' && (
             <SettingsPage settings={settings} showToast={showToast} isSimulation={ctrl.isSimulation} />
@@ -58,7 +61,7 @@ export default function App() {
           {tab === 'system' && (
             <SystemPage isSimulation={ctrl.isSimulation} />
           )}
-          {tab === 'diagnostics' && <DiagnosticsPage isSimulation={ctrl.isSimulation} />}
+          {tab === 'diagnostics' && <DiagnosticsPage isSimulation={ctrl.isSimulation} settings={settings} onCalibrationActive={setCalibrating} />}
         </main>
       </div>
 
