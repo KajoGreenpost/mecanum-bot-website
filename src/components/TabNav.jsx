@@ -1,9 +1,10 @@
-import { Gamepad2, SlidersHorizontal, ServerCog } from 'lucide-react'
+import { Gamepad2, SlidersHorizontal, ServerCog, Terminal } from 'lucide-react'
 
 const TABS = [
   { id: 'control', label: 'STEUERUNG', icon: Gamepad2 },
   { id: 'settings', label: 'EINSTELLUNGEN', icon: SlidersHorizontal },
   { id: 'system', label: 'SYSTEM', icon: ServerCog },
+  { id: 'diagnostics', label: 'DIAGNOSE', icon: Terminal },
 ]
 
 export default function TabNav({ tab, onChange }) {

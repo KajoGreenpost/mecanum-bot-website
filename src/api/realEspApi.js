@@ -7,6 +7,25 @@ const CONTROL_TIMEOUT = 250
 const IDLE_TIMEOUT = 1500
 const SETTINGS_TIMEOUT = 2000
 
+async function debugRequest(method, after, enabled, signal) {
+  const controller = new AbortController()
+  const abort = () => controller.abort()
+  if (signal?.aborted) abort()
+  signal?.addEventListener('abort', abort, { once: true })
+  const timer = setTimeout(abort, 2500)
+  try {
+    const response = await fetch(`/api/debug?after=${after}`, {
+      method, cache: 'no-store', signal: controller.signal,
+      ...(method === 'POST' ? { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: `enabled=${enabled ? 1 : 0}` } : {}),
+    })
+    if (!response.ok) throw new Error(response.status === 404 ? 'Firmware-Update für Diagnose erforderlich.' : `Diagnose: HTTP ${response.status}`)
+    return response.json()
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', abort)
+  }
+}
+
 function xhrPost(url, body, timeout) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
@@ -80,6 +99,9 @@ export const realEspApi = {
       .join('&')
     return xhrPost('/api/settings', body, SETTINGS_TIMEOUT).then(text => JSON.parse(text))
   },
+
+  getDebug(after = 0, signal) { return debugRequest('GET', after, false, signal) },
+  setDebugEnabled(enabled, signal, after = 0) { return debugRequest('POST', after, enabled, signal) },
 
   get maintenanceUrl() {
     return '/maintenance'

@@ -49,6 +49,9 @@ export const vehicleApi = {
     return _impl.saveSettings(data)
   },
 
+  getDebug(after = 0, signal) { return _impl.getDebug(after, signal) },
+  setDebugEnabled(enabled, signal, after = 0) { return _impl.setDebugEnabled(enabled, signal, after) },
+
   /** Returns maintenance URL or null if simulation */
   get maintenanceUrl() {
     return _impl.maintenanceUrl

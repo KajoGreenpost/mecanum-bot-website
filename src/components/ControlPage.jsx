@@ -4,8 +4,8 @@ import DevTelemetry from './DevTelemetry.jsx'
 import SimTools from './SimTools.jsx'
 
 export default function ControlPage({ ctrl }) {
-  const handleStickChange = (stickId, dir, str) => {
-    ctrl.updateStick(stickId, dir, str)
+  const handleStickChange = (stickId, dir, str, pressed) => {
+    ctrl.updateStick(stickId, dir, str, pressed)
   }
 
   const handleDisarm = () => {
@@ -28,16 +28,16 @@ export default function ControlPage({ ctrl }) {
         <div className="arm-section">
           <button
             className={`arm-control ${ctrl.armed ? 'armed' : 'disarmed'}`}
-            onClick={ctrl.toggleArm}
-            disabled={ctrl.connState !== 'online'}
+            onClick={ctrl.disarmNow}
+            disabled={!ctrl.armed}
           >
             <div className="arm-bg-glow" />
             <div className="arm-icon-wrap">
               {ctrl.armed ? <ShieldAlert size={28} /> : <Power size={28} />}
             </div>
             <div className="arm-text-block">
-              <span className="arm-title">{ctrl.armed ? 'STOPP' : 'AKTIVIEREN'}</span>
-              <span className="arm-sub">{ctrl.armed ? 'MOTOREN AKTIV' : 'MOTOREN AUS'}</span>
+              <span className="arm-title">{ctrl.armed ? 'STOPP' : ctrl.releaseRequired ? 'STICKS LÖSEN' : 'BEREIT'}</span>
+              <span className="arm-sub">{ctrl.armed ? 'MOTOREN AKTIV' : ctrl.releaseRequired ? 'DANN NEU BEWEGEN' : 'STICK BEWEGEN'}</span>
             </div>
             <div className={`arm-status-led ${ctrl.armed ? 'on' : 'off'}`} />
           </button>

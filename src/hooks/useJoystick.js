@@ -32,6 +32,13 @@ export function useJoystick(onChange) {
   const onChangeRef = useRef(onChange)
   useEffect(() => { onChangeRef.current = onChange }, [onChange])
 
+  useEffect(() => () => {
+    if (pointerIdRef.current !== null) {
+      pointerIdRef.current = null
+      onChangeRef.current?.(0, 0, false)
+    }
+  }, [])
+
   const computeCenter = useCallback(() => {
     if (!elRef.current) return
     const r = elRef.current.getBoundingClientRect()
@@ -48,7 +55,7 @@ export function useJoystick(onChange) {
     setDir(0)
     setStr(0)
     setActive(false)
-    if (onChangeRef.current) onChangeRef.current(0, 0)
+    if (onChangeRef.current) onChangeRef.current(0, 0, false)
   }, [])
 
   const update = useCallback((px, py) => {
@@ -74,7 +81,7 @@ export function useJoystick(onChange) {
       setDir(0)
       setStr(0)
       setActive(false)
-      if (onChangeRef.current) onChangeRef.current(0, 0)
+      if (onChangeRef.current) onChangeRef.current(0, 0, true)
       return
     }
 
@@ -90,7 +97,7 @@ export function useJoystick(onChange) {
     setDir(d)
     setStr(s)
     setActive(true)
-    if (onChangeRef.current) onChangeRef.current(d, s)
+    if (onChangeRef.current) onChangeRef.current(d, s, true)
   }, [])
 
   // Pointer event handlers
@@ -116,14 +123,17 @@ export function useJoystick(onChange) {
   }, [reset])
 
   const onPointerCancel = useCallback((e) => {
-    if (e.pointerId !== pointerIdRef.current) return
+    if (e.pointerId !== pointerIdRef.current) return false
     reset()
+    return true
   }, [reset])
 
   const onLostPointerCapture = useCallback((e) => {
     if (e.pointerId === pointerIdRef.current) {
       reset()
+      return true
     }
+    return false
   }, [reset])
 
   // Recompute center on resize / orientation change

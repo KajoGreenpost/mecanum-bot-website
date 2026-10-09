@@ -11,8 +11,8 @@ const SPEED_MODES = [
 
 const FIELD_DESC = {
   startMin: 'Mindestleistung, ab der die Motoren nach dem Anfahren weiterlaufen.',
-  boost: 'Kurzzeitige Zusatzleistung zum Überwinden der Haftreibung.',
-  boostTime: 'Dauer des Anfahr-Boosts.',
+  boost: 'Kurzer Anfahrimpuls. Darf die gewählten 60 % oder 80 % vorübergehend überschreiten, damit die Motoren anlaufen (Firmware ab 1.0.2).',
+  boostTime: 'Dauer des Anfahr-Boosts: 0–100 entspricht 0–300 ms.',
   deadzone: 'Joystick-Bereich um die Mittelstellung, der ignoriert wird.',
 }
 

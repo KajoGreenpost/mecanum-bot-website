@@ -7,9 +7,78 @@ import { useSettings } from '../src/hooks/useSettings.js'
 import { useControlState } from '../src/hooks/useControlState.js'
 import { vehicleApi } from '../src/api/vehicleApi.js'
 import { realEspApi } from '../src/api/realEspApi.js'
+import DiagnosticsPage from '../src/components/DiagnosticsPage.jsx'
 
 const defaults = { speedMode: 0, startMin: 18, boost: 82, boostTime: 40, deadzone: 8 }
 const flush = () => Promise.resolve()
+
+test('diagnostics only polls while enabled, preserves cursor, caps output and stops after disabling', async () => {
+  const original = { get: vehicleApi.getDebug, set: vehicleApi.setDebugEnabled, document: globalThis.document,
+    setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout }
+  const timers = new Map()
+  let timerId = 0, renderer, reads = 0, after = 0
+  globalThis.document = { visibilityState: 'visible' }
+  globalThis.setTimeout = (fn, ms) => { assert.equal(ms, 1000); timers.set(++timerId, fn); return timerId }
+  globalThis.clearTimeout = id => timers.delete(id)
+  vehicleApi.getDebug = async cursor => {
+    reads++; after = cursor
+    return reads === 1 ? { enabled: false, bootId: 1, lines: [], next: 0 } : {
+      enabled: true, bootId: 1, next: 301,
+      lines: Array.from({ length: 300 }, (_, i) => ({ id: i + 2, ms: i, text: `STATE ${i}` })),
+    }
+  }
+  vehicleApi.setDebugEnabled = async (enabled, signal, cursor) => ({ enabled, bootId: 1,
+    lines: [{ id: cursor + 1, ms: 0, text: enabled ? 'DEBUG enabled' : 'DEBUG disabled' }], next: cursor + 1 })
+  try {
+    await act(async () => { renderer = create(<DiagnosticsPage isSimulation={false} />); await flush() })
+    assert.equal(reads, 1)
+    assert.equal(timers.size, 0, 'disabled debugging must not poll')
+    await act(async () => { renderer.root.findByProps({ role: 'switch' }).props.onClick(); await flush() })
+    assert.equal(renderer.root.findByProps({ role: 'switch' }).props['aria-checked'], true)
+    const poll = [...timers.values()][0]; timers.clear()
+    await act(async () => { await poll() })
+    assert.equal(after, 1)
+    assert.equal(renderer.root.findAllByProps({ className: 'debug-line' }).length, 240)
+    await act(async () => { renderer.root.findByProps({ role: 'switch' }).props.onClick(); await flush() })
+    assert.equal(renderer.root.findByProps({ role: 'switch' }).props['aria-checked'], false)
+    assert.equal(timers.size, 0)
+    act(() => renderer.root.findByProps({ 'aria-label': 'Terminal leeren' }).props.onClick())
+    assert.equal(renderer.root.findAllByProps({ className: 'debug-line' }).length, 0)
+  } finally {
+    act(() => renderer?.unmount())
+    vehicleApi.getDebug = original.get; vehicleApi.setDebugEnabled = original.set
+    globalThis.document = original.document; globalThis.setTimeout = original.setTimeout; globalThis.clearTimeout = original.clearTimeout
+  }
+})
+
+test('diagnostics clearly reports old firmware and keeps switch disabled', async () => {
+  const original = vehicleApi.getDebug
+  let renderer
+  vehicleApi.getDebug = async () => { throw new Error('Firmware-Update für Diagnose erforderlich.') }
+  try {
+    await act(async () => { renderer = create(<DiagnosticsPage isSimulation={false} />); await flush() })
+    assert.equal(renderer.root.findByProps({ role: 'switch' }).props.disabled, true)
+    assert.match(renderer.root.findByProps({ role: 'alert' }).children.join(''), /Firmware-Update/)
+  } finally { act(() => renderer?.unmount()); vehicleApi.getDebug = original }
+})
+
+test('debug API sends incremental cursor and reports HTTP failures', async () => {
+  const original = globalThis.fetch
+  const calls = []
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options })
+    return new Response(JSON.stringify({ enabled: true, bootId: 1, lines: [], next: 42 }), { status: 200 })
+  }
+  try {
+    await realEspApi.getDebug(42)
+    await realEspApi.setDebugEnabled(true, undefined, 42)
+    assert.equal(calls[0].url, '/api/debug?after=42')
+    assert.equal(calls[1].url, '/api/debug?after=42')
+    assert.equal(calls[1].options.body, 'enabled=1')
+    globalThis.fetch = async () => new Response('', { status: 404 })
+    await assert.rejects(realEspApi.getDebug(), /Firmware-Update/)
+  } finally { globalThis.fetch = original }
+})
 
 test('settings load once across heartbeat rerenders and preserve unsaved edits', async () => {
   const original = vehicleApi.getSettings
@@ -105,7 +174,7 @@ test('heartbeat uses 1 Hz idle, 20 Hz armed, no request queue, and disarms on lo
     await act(async () => { pending(); await flush() })
     for (let time = 50; time <= 1000; time += 50) await step(time)
     assert.equal(frames.length, 2)
-    act(() => { control.toggleArm(); control.updateStick(1, 1, 80) })
+    act(() => { control.updateStick(1, 1, 80, true) })
     await step(1050)
     await step(1100)
     assert.equal(frames.at(-1).en, 1)
@@ -121,7 +190,13 @@ test('heartbeat uses 1 Hz idle, 20 Hz armed, no request queue, and disarms on lo
     assert.equal(frames.at(-1).en, 0)
     assert.equal(frames.at(-1).s1_str, 0)
     assert.equal(control.connState, 'online')
-    act(() => control.toggleArm())
+    act(() => control.updateStick(1, 1, 80, true))
+    assert.equal(control.armed, false, 'a held gesture must not restart after connection recovery')
+    assert.equal(control.releaseRequired, true)
+    act(() => {
+      control.updateStick(1, 0, 0, false)
+      control.updateStick(1, 1, 80, true)
+    })
     act(() => {
       document.visibilityState = 'hidden'
       listeners.get('visibilitychange').forEach(fn => fn())
@@ -142,6 +217,48 @@ test('heartbeat uses 1 Hz idle, 20 Hz armed, no request queue, and disarms on lo
     vehicleApi.sendControl = originals.send
     vehicleApi.sendControlSync = originals.stop
     for (const key of ['document', 'window', 'performance', 'setInterval', 'clearInterval']) globalThis[key] = originals[key]
+  }
+})
+
+test('automatic activation: last release stops; manual stop needs a fresh gesture', async () => {
+  const original = { document: globalThis.document, window: globalThis.window,
+    setInterval: globalThis.setInterval, clearInterval: globalThis.clearInterval,
+    send: vehicleApi.sendControl, stop: vehicleApi.sendControlSync }
+  let control, renderer, stops = 0
+  globalThis.document = { visibilityState: 'visible', addEventListener() {}, removeEventListener() {} }
+  globalThis.window = { addEventListener() {}, removeEventListener() {} }
+  globalThis.setInterval = () => 1
+  globalThis.clearInterval = () => {}
+  vehicleApi.sendControl = async () => ({ ok: true, latency: 10 })
+  vehicleApi.sendControlSync = frame => { assert.equal(frame.en, 0); stops++ }
+  function Harness() { control = useControlState(); return null }
+  try {
+    await act(async () => { renderer = create(<Harness />); await flush() })
+    act(() => control.updateStick(1, 0, 0, true))
+    assert.equal(control.armed, false, 'touching the deadzone must not activate motors')
+    act(() => control.updateStick(1, 1, 60, true))
+    assert.equal(control.armed, true)
+    act(() => control.updateStick(2, 3, 60, true))
+    act(() => control.updateStick(1, 0, 0, false))
+    assert.equal(control.armed, true, 'the other thumb must keep working')
+    act(() => control.updateStick(2, 0, 0, false))
+    assert.equal(control.armed, false)
+    assert.equal(control.releaseRequired, false)
+    act(() => control.updateStick(1, 1, 60, true))
+    assert.equal(control.armed, true, 'next gesture automatically reactivates')
+    act(() => control.disarmNow())
+    act(() => control.updateStick(1, 1, 75, true))
+    assert.equal(control.armed, false, 'stop button must not be undone by the held thumb')
+    assert.equal(control.releaseRequired, true)
+    act(() => control.updateStick(1, 0, 0, false))
+    assert.equal(control.releaseRequired, false)
+    act(() => control.updateStick(1, 1, 60, true))
+    assert.equal(control.armed, true)
+    assert.equal(stops, 2)
+  } finally {
+    act(() => renderer?.unmount())
+    vehicleApi.sendControl = original.send; vehicleApi.sendControlSync = original.stop
+    for (const key of ['document', 'window', 'setInterval', 'clearInterval']) globalThis[key] = original[key]
   }
 })
 

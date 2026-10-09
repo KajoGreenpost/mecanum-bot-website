@@ -16,6 +16,7 @@ export function useControlState() {
     vehicleApi.isSimulation ? 'online' : 'connecting'
   )
   const [latency, setLatency] = useState(0)
+  const [releaseRequired, setReleaseRequired] = useState(false)
   const [lastFrame, setLastFrame] = useState({ s1_dir: 0, s1_str: 0, s2_dir: 0, s2_str: 0, en: 0 })
 
   const armedRef = useRef(false)
@@ -25,23 +26,36 @@ export function useControlState() {
   const connStateRef = useRef(connState)
   const lastSendAt = useRef(-Infinity)
   const lastTelemetryAt = useRef(-Infinity)
+  const held = useRef({ 1: false, 2: false })
+  const blocked = useRef(false)
+
+  const setBlocked = useCallback(value => {
+    blocked.current = value
+    setReleaseRequired(value)
+  }, [])
 
   const updateConnection = useCallback((state) => {
     connStateRef.current = state
     setConnState(state)
   }, [])
 
-  const disarmNow = useCallback(() => {
+  const stopMotion = useCallback(() => {
     const wasArmed = armedRef.current
     armedRef.current = false
     setArmed(false)
     stick1Ref.current = { dir: 0, str: 0 }
     stick2Ref.current = { dir: 0, str: 0 }
-    lastSendAt.current = -Infinity
+    if (wasArmed) lastSendAt.current = -Infinity
     if (wasArmed) vehicleApi.sendControlSync({
       s1_dir: 0, s1_str: 0, s2_dir: 0, s2_str: 0, en: 0,
     })
   }, [])
+
+  const disarmNow = useCallback(() => {
+    stopMotion()
+    // A held thumb must be lifted after a safety stop before a new gesture can drive.
+    setBlocked(held.current[1] || held.current[2])
+  }, [stopMotion, setBlocked])
 
   // Rotating a phone out of the supported driving orientation stops the vehicle.
   useEffect(() => {
@@ -140,19 +154,29 @@ export function useControlState() {
     }
   }, [disarmNow])
 
-  const updateStick = useCallback((stick, dir, str) => {
+  const updateStick = useCallback((stick, dir, str, pressed = dir > 0 && str > 0) => {
+    held.current[stick] = pressed
+    if (blocked.current) {
+      if (!held.current[1] && !held.current[2]) setBlocked(false)
+      return
+    }
+    const canDrive = connStateRef.current === 'online' && document.visibilityState !== 'hidden'
+      && !window.matchMedia?.('(orientation: portrait) and (max-width: 600px)').matches
+    if (!canDrive) {
+      if (pressed) setBlocked(true)
+      return
+    }
     if (stick === 1) stick1Ref.current = { dir, str }
     else stick2Ref.current = { dir, str }
-  }, [])
-
-  const toggleArm = useCallback(() => {
-    if (armedRef.current) return disarmNow()
-    if (connStateRef.current !== 'online' || document.visibilityState === 'hidden') return
-    if (window.matchMedia?.('(orientation: portrait) and (max-width: 600px)').matches) return
-    armedRef.current = true
-    setArmed(true)
-    lastSendAt.current = -Infinity
-  }, [disarmNow])
+    const moving = (stick1Ref.current.dir > 0 && stick1Ref.current.str > 0)
+      || (stick2Ref.current.dir > 0 && stick2Ref.current.str > 0)
+    if (!moving) return stopMotion()
+    if (!armedRef.current) {
+      armedRef.current = true
+      setArmed(true)
+      lastSendAt.current = -Infinity
+    }
+  }, [stopMotion, setBlocked])
 
   const reconnect = useCallback(() => {
     if (vehicleApi.isSimulation) {
@@ -179,7 +203,7 @@ export function useControlState() {
   }, [])
 
   return {
-    armed, toggleArm, disarmNow,
+    armed, releaseRequired, disarmNow,
     connState, reconnect,
     latency, lastFrame,
     isSimulation: vehicleApi.isSimulation,

@@ -21,6 +21,17 @@ const DEFAULT_SETTINGS = {
 let _simConnected = true
 let _lastFrame = { s1_dir: 0, s1_str: 0, s2_dir: 0, s2_str: 0, en: 0 }
 let _onConnChange = null
+let _debugEnabled = false
+let _debugSeq = 0
+let _debugLines = []
+let _debugLastState = 0
+let _debugLastRead = 0
+const _debugStart = Date.now()
+
+function simDebugLog(text) {
+  _debugLines.push({ id: ++_debugSeq, ms: Date.now() - _debugStart, text })
+  _debugLines = _debugLines.slice(-32)
+}
 
 function loadSettingsStore() {
   try {
@@ -67,7 +78,29 @@ export const simulationApi = {
   saveSettings(data) {
     const merged = { ...loadSettingsStore(), ...data }
     saveSettingsStore(merged)
+    if (_debugEnabled) simDebugLog('SIMULATION: SETTINGS saved')
     return new Promise(resolve => setTimeout(resolve, 15))
+  },
+
+  getDebug(after = 0) {
+    if (!_simConnected) return Promise.reject(new Error('Simulation: Verbindung unterbrochen.'))
+    const now = Date.now()
+    if (_debugEnabled && now - _debugLastRead > 10000) _debugEnabled = false
+    if (_debugEnabled && now - _debugLastState >= 1000) {
+      _debugLastState = now
+      simDebugLog(`SIMULATION: STATE en=${_lastFrame.en} stick1=${_lastFrame.s1_dir}/${_lastFrame.s1_str} stick2=${_lastFrame.s2_dir}/${_lastFrame.s2_str}`)
+    }
+    _debugLastRead = now
+    const lines = _debugLines.filter(line => line.id > after).slice(0, 8)
+    return Promise.resolve({ enabled: _debugEnabled, bootId: 1, dropped: Math.max(0, (_debugLines[0]?.id || 1) - after - 1), lines, next: lines.at(-1)?.id ?? after })
+  },
+
+  setDebugEnabled(enabled, signal, after = 0) {
+    if (!_simConnected) return Promise.reject(new Error('Simulation: Verbindung unterbrochen.'))
+    if (enabled !== _debugEnabled) simDebugLog(enabled ? 'SIMULATION: DEBUG enabled (keine echten ESP32-Daten)' : 'SIMULATION: DEBUG disabled')
+    _debugEnabled = enabled
+    _debugLastRead = Date.now()
+    return this.getDebug(after)
   },
 
   get maintenanceUrl() {

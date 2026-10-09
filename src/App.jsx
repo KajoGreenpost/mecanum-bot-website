@@ -9,6 +9,7 @@ import ControlPage from './components/ControlPage.jsx'
 import SettingsPage from './components/SettingsPage.jsx'
 import SystemPage from './components/SystemPage.jsx'
 import Toast from './components/Toast.jsx'
+import DiagnosticsPage from './components/DiagnosticsPage.jsx'
 
 export default function App() {
   const [tab, setTab] = useState('control')
@@ -57,6 +58,7 @@ export default function App() {
           {tab === 'system' && (
             <SystemPage isSimulation={ctrl.isSimulation} />
           )}
+          {tab === 'diagnostics' && <DiagnosticsPage isSimulation={ctrl.isSimulation} />}
         </main>
       </div>
 

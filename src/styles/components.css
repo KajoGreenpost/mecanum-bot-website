@@ -213,6 +213,58 @@
 
 .orientation-hint { display: none; }
 
+.diagnostics-page {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  overflow: hidden;
+}
+.diagnostics-header, .diagnostics-heading, .diagnostics-actions, .debug-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.diagnostics-header { justify-content: space-between; flex: 0 0 auto; }
+.diagnostics-heading { color: var(--cyan); gap: 8px; }
+.diagnostics-heading h2 { font-size: 14px; margin: 0; letter-spacing: 0.06em; }
+.debug-status { color: var(--text-3); font-family: var(--font-mono); font-size: 10px; }
+.debug-status.active { color: var(--green); }
+.debug-toggle-label { color: var(--text-2); font-size: 12px; }
+.toggle-switch:disabled { opacity: 0.4; cursor: wait; }
+.terminal-clear {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-2);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.diagnostics-note { margin: 0; color: var(--text-3); font-size: 11px; flex: 0 0 auto; }
+.diagnostics-error { margin: 0; color: var(--red); font-size: 12px; flex: 0 0 auto; }
+.debug-terminal {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: #05090d;
+  color: #bbefd8;
+  font: 12px/1.7 var(--font-mono);
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.debug-timestamp { color: var(--cyan-dim); }
+.terminal-placeholder { color: var(--text-3); }
+
 /* ============================================================
    JOYSTICK
    ============================================================ */
@@ -1573,4 +1625,14 @@
   .status-left { display: none; }
   .status-right { flex: 1; justify-content: center; }
   .tab-nav { justify-content: center; }
+}
+
+@media (max-width: 700px) {
+  .tab-item svg { display: none; }
+  .tab-item { padding: 6px 8px; font-size: 10px; }
+  .diagnostics-page { padding: 10px; gap: 6px; }
+  .diagnostics-header { gap: 6px; flex-wrap: wrap; }
+  .diagnostics-heading h2 { font-size: 12px; }
+  .diagnostics-actions { gap: 8px; }
+  .debug-terminal { font-size: 11px; }
 }

@@ -10,8 +10,8 @@ export default function Joystick({ label, stickId, onChange, onDisarm, armed }) 
   const handleChange = useRef(onChange)
   handleChange.current = onChange
 
-  const onJoystickChange = (dir, str) => {
-    if (handleChange.current) handleChange.current(stickId, dir, str)
+  const onJoystickChange = (dir, str, pressed) => {
+    if (handleChange.current) handleChange.current(stickId, dir, str, pressed)
   }
 
   const {
@@ -21,13 +21,12 @@ export default function Joystick({ label, stickId, onChange, onDisarm, armed }) 
 
   // Handle pointercancel to trigger disarm
   const handleCancel = (e) => {
-    onPointerCancel(e)
-    if (onDisarm) onDisarm()
+    if (onPointerCancel(e) && onDisarm) onDisarm()
   }
 
   const handleLostCapture = (e) => {
-    onLostPointerCapture(e)
-    if (onDisarm) onDisarm()
+    // Normal pointer release also fires lostpointercapture; it must not stop the other thumb.
+    if (onLostPointerCapture(e) && onDisarm) onDisarm()
   }
 
   // Compute active sector highlight
